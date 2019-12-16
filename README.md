@@ -28,6 +28,20 @@ position, as well as the Earth's position in its orbit. In writing the firmware,
 to learn that the effect of the orbit on local solar noon varies by something like +- 15 minutes
 through the year!
 There are still some debug modes languishing in the firmware that should be polished a bit. I'm
+sure people will want more features, and I'll do my best to oblige. What I will absolutely NOT
+do is make the adjustment for time zones automatic. I did the legwork to make this happen and
+came to the conclusion that it simply isn't realistic without giving the clock an SD card and a
+way to constantly update its time zone database. To be honest, the largest reason to avoid
+this step was because I didn't want to maintain that database. (Time zone definitions change all
+the time.) The actual arduino-side processing would have been easy.
+
+## Resources
+
+The project consists of an Arduino .ino file, two Eagle CAD circuit board designs (one for the
+displays and one for the Arduino/GPS controller). I'll see if I can work out a way to manage the
+Fusion 360 model of the box in GitHub, but in the meantime it's just shared [on Autodesk's
+servers].(https://a360.co/2rUt2ZP)
+
 ## TODO
 - Since I've gotten the thing boxed up, I've occasionally bumped the settings buttons. This
   causes local time to change by 15 minutes. I think we need to require that you hit the
