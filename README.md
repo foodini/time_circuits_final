@@ -1,5 +1,7 @@
 # Arduino Time Circuits
 
+![Time Circuits Image](https://raw.githubusercontent.com/foodini/time_circuits_final/master/time_circuits_image.jpg)
+
 This is a project I've been working on for.... far too long. There've been [previous iterations]
 (https://www.youtube.com/watch?v=cxGm47E_y9M) of this doodad, but [there were issues].
 (https://www.youtube.com/watch?v=KKTgsbm41c8)
