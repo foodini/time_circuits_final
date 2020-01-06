@@ -45,6 +45,9 @@ Fusion 360 model of the box in GitHub, but in the meantime it's just shared [on 
 servers].(https://a360.co/2rUt2ZP)
 
 ## TODO
+- I need to figure out what to do with leap seconds. When there are 61 seconds in a minute, I
+  have to handle it properly. At the moment, the clock will display the same time (on the local
+  and solar lines) for 2 seconds.
 - Since I've gotten the thing boxed up, I've occasionally bumped the settings buttons. This
   causes local time to change by 15 minutes. I think we need to require that you hit the
   mode button to get to the time-change state, where you can alter local time. After n
