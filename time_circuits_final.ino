@@ -1,14 +1,21 @@
 #include "Wire.h"
 
-#include <SoftwareSerial.h>  //Must be here to avoid weird compile error in Adafruit_GPS.h
+//#include <SoftwareSerial.h>  //Must be here to avoid weird compile error in Adafruit_GPS.h
 #include <Adafruit_GPS.h>
 #include <EEPROM.h>
+
+#include "tc_datetime.h"
+#include "tc_util.h"
 
 /*
  * TODO:
  * 
  *  * There are only 38 actual time zones (https://en.wikipedia.org/wiki/List_of_UTC_time_offsets)
  *  * We have one major problem remaining. The 61st second of leap seconds.
+ *  * Break out the EEPROM comms into its own .h/.cpp
+ *  * Break out button handling into its own .h/.cpp
+ *  * Fix the discontinuity in solar_offset. I wrote it very late at night and never got back.
+ *  * Standardize commenting style.
  */
 
 /*
@@ -49,199 +56,6 @@ class Stopwatch {
     }
 };
 
-class Datetime {
-  public:
-    // These are all signed ints because we do subtraction on time. When hour == -1, hour becomes 23 and day--.
-    int16_t year;
-    int8_t  month;
-    int8_t  day;
-    int32_t hour;
-    int32_t minute;
-    int32_t seconds;
-    int32_t milliseconds;
-
-    Datetime(const Adafruit_GPS& gps) {
-      init_from_adafruit_gps(gps);
-    }
-    void operator=(const Adafruit_GPS& gps) {
-      init_from_adafruit_gps(gps);
-    }
-    void init_from_adafruit_gps(const Adafruit_GPS& gps) {
-      year = uint16_t(gps.year)+2000;
-      month = gps.month;
-      day = gps.day;
-      hour = gps.hour;
-      minute = gps.minute;
-      seconds = gps.seconds;
-      milliseconds = gps.milliseconds;      
-    }
-
-    // I chose not to use time.h (and a number of other libs) because none of them can be updated to take
-    // leap seconds into account. If I were to use one of them to compute relative times, for each leap
-    // second that passed between compilation and execution, the relative times would be off by one second.
-    // By doing everything relative to the time reported by GPS, my only difficulty is in computing time
-    // offsets of more than a month. I can live with that.
-    void normalize() {
-      if (milliseconds < 0) {
-        seconds += (milliseconds/1000) - 1;
-        milliseconds = milliseconds % 1000 + 1000;
-      }
-      // This isn't an else-if case because it's possible milliseconds became exactly 1000 as a result of
-      // the if(milliseconds < 0) block.
-      if (milliseconds >= 1000) {
-        seconds += milliseconds / 1000;
-        milliseconds = milliseconds % 1000;
-      }
-    
-      if (seconds < 0) {
-        minute += (seconds/60) - 1;
-        seconds = seconds % 60 + 60;
-      } 
-      if (seconds >= 60) {
-        minute += seconds / 60;
-        seconds = seconds % 60;
-      }
-    
-      if (minute < 0) {
-        hour += (minute/60) - 1;
-        minute = minute % 60 + 60;
-      } 
-      if (minute >= 60) {
-        hour += minute / 60;
-        minute = minute % 60;
-      }
-
-      if (hour < 0) {
-        day += (hour/24) - 1;
-        hour = hour % 24 + 24;
-      } 
-      if (hour >= 24) {
-        day += hour / 24;
-        hour = hour % 24;
-      }
-
-      if (day < 1) {
-        switch (month) {
-          case 1: case 2: case 4: case 6: case 8: case 9: case 11:
-            day = 31; break;
-          case 3:
-            if (year % 4 == 0)
-              day = 29;
-            else
-              day = 28;
-            break;
-          default:
-            day = 30;
-        }
-        month -= 1;
-      } else {
-        switch (month) {
-          case 1: case 3: case 5: case 7: case 8: case 10: case 12:
-            if (day > 31) {
-              day = 1;
-              month += 1;
-            }
-            break;
-          case 2:
-            if (year % 4 == 0)
-              if (day > 29) {
-                day = 1;
-                month = 3;
-              }
-              else if (day > 28) {
-                day = 1;
-                month = 3;
-              }
-            break;
-          default:
-            if (day > 30) {
-              day = 1;
-              month += 1;
-            }
-            break;
-        }
-      }
-    
-      if (month < 1) {
-        month = 12;
-        year -= 1;
-      }
-    
-      if (month == 13) {
-        month = 1;
-        year += 1;
-      }
-    
-      switch (month) {
-        //advancing
-        case 1: //31 -> 1
-        case 3:
-        case 5:
-        case 7:
-        case 8:
-        case 10:
-        case 12:
-          if (day > 31) {
-            if (month == 12) {
-              year++;
-              month = 0;
-            }
-            day = 1;
-            month++;
-          }
-          break;
-        case 2: // 2[89] -> 1
-          if ((year % 4 == 0 && day > 29) || (year % 4 && day > 28)) {
-            day = 1;
-            month = 3;
-          }
-          break;
-        case 4: // 30 -> 1
-        case 6:
-        case 9:
-        case 11:
-          if (day > 30) {
-            day = 1;
-            month ++;
-          }
-      }
-    
-      if (day < 1) {
-        printf("month: %d\n", month);
-        switch (month) {
-          //retreating
-          case 1: //
-            day = 31;
-            month--;
-            year--;
-            break;
-          case 2: // 1 -> 31
-          case 4:
-          case 6:
-          case 8:
-          case 9:
-          case 11:
-            day = 31;
-            month--;
-            break;
-          case 3: // 1 -> 2[29]
-            if (year % 4 == 0)
-              day = 29;
-            else
-              day = 28;
-            month = 2;
-            break;
-          case 5: // 1 -> 30
-          case 7:
-          case 10:
-          case 12:
-            day = 30;
-            month--;
-            break;
-        }
-      }
-    }
-};
 #define NUM_ROWS 3
 uint8_t addresses[NUM_ROWS][2] = {
   {B1100000, B1100001},
@@ -384,14 +198,6 @@ void stall(int t, char c0, char c1, uint8_t row) {
 }
 
 // strcpy, but no '\0' is written to the destination.
-void bare_strcpy(char *dst, char*src) {
-  while (*src != '\0') {
-    *dst = *src;
-    dst++;
-    src++;
-  }
-}
-
 void initGPS() {
   OCR0A = 0xAF;
   TIMSK0 |= _BV(OCIE0A);
@@ -465,52 +271,6 @@ void set_eeprom_tz_offset(uint8_t offset) {
   EEPROM.write(addr+1, offset);
 }
 
-char * get_month_str(int m) {
-  switch (m) {
-    case  1: return (char *)"JAN ";
-    case  2: return (char *)"FEB ";
-    case  3: return (char *)"MAR ";
-    case  4: return (char *)"APR ";
-    case  5: return (char *)"MAY ";
-    case  6: return (char *)"JUN ";
-    case  7: return (char *)"JUL ";
-    case  8: return (char *)"AUG ";
-    case  9: return (char *)"SEP ";
-    case 10: return (char *)"OCT ";
-    case 11: return (char *)"NOV ";
-    case 12: return (char *)"DEC ";
-    default: return (char *)"    ";
-  }
-}
-
-void make_time_str(char * str, const Datetime& datetime) {
-  bare_strcpy(str, get_month_str(datetime.month));
-  str[3] = ' ';
-  // TODO: use a 0-filling rjust for this
-  str[4] = '0' + datetime.day / 10;
-  str[5] = '0' + datetime.day % 10;
-  itoa(datetime.year, str + 6, 10);
-  str[10] = '0' + datetime.hour / 10;
-  str[11] = '0' + datetime.hour % 10;
-  str[12] = '0' + datetime.minute / 10;
-  str[13] = '0' + datetime.minute % 10;
-  str[14] = '0' + datetime.seconds / 10;
-  str[15] = '0' + datetime.seconds % 10;
-}
-
-bool leap_year() {
-  if (GPS.year % 4 == 0) {
-    if (GPS.year % 100 == 0) {
-      if (GPS.year % 400 == 0) {
-        return true;
-      }
-      return false;
-    }
-    return true;
-  }
-  return false;
-}
-
 // I understand this formula to be accurate to within 15s.
 float solar_offset(const Datetime& current_utc) {
   float n;
@@ -529,7 +289,7 @@ float solar_offset(const Datetime& current_utc) {
     case  11: n =   304; break;
     case  12: n =   334; break;
   }
-  if (current_utc.month > 2 && !leap_year) {
+  if (current_utc.month > 2 && !current_utc.leap_year()) {
     n += 1;
     days_in_year += 1;
   }
@@ -565,7 +325,7 @@ bool make_solar_time(const Datetime& current_utc, char * str) {
   Datetime solar_time(current_utc);
   solar_time.milliseconds += displacement;
   solar_time.normalize();
-  make_time_str(str, solar_time);
+  solar_time.make_time_str(str);
   return solar_time.milliseconds < 500;
 }
 
@@ -653,6 +413,12 @@ void ftoa_msb_decimal(float f, char * buf, int int_chars, int frac_chars) {
 
 void setup()
 {
+#ifdef RUN_TESTS
+  Serial.begin(19200);
+  Datetime::run_tests();
+  Serial.end();
+  while(1);
+#endif
   initMAX6955();
 
   initGPS();
@@ -665,6 +431,7 @@ void setup()
   display_state = 0;
 
   current_tz_offset = get_eeprom_tz_offset();
+
 }
 
 void update_button(bool * down, bool * pressed, int pin) {
@@ -711,7 +478,7 @@ void update_buttons(const Datetime& current_utc, bool gps_out) {
 void draw_time_strings(const Datetime & current_utc) {
   set_colons(11, current_utc.milliseconds % 1000 < 500);
   set_colons(12, current_utc.milliseconds % 1000 < 500);
-  make_time_str(display_strs[0], current_utc);
+  current_utc.make_time_str(display_strs[0]);
 
   Datetime current_local(current_utc);
   int8_t time_zone_offset_hours, time_zone_offset_minutes;
@@ -720,7 +487,7 @@ void draw_time_strings(const Datetime & current_utc) {
   current_local.minute += time_zone_offset_minutes;
   current_local.normalize();
   
-  make_time_str(display_strs[1], current_local);
+  current_local.make_time_str(display_strs[1]);
 
   display_strs[0][5] |= 0x80;
   display_strs[0][9] |= 0x80;
@@ -857,40 +624,6 @@ void draw_display_state(const Datetime& current_utc, bool gps_out) {
   writeRow(2, display_strs[2]);
 
 }
-
-/*
-// Just a handy way of testing whether normalize works. Unit tests would be nice.
-void test_offsets(Datetime& datetime) {
-  uint32_t m = millis();
-  m /= 5000;
-  switch(m % 3) {
-    case 0:
-      datetime.year = 2000;
-      datetime.month = 1;
-      datetime.day = 1;
-      datetime.hour = 4;
-      datetime.minute = 0;
-      datetime.seconds = 0;
-    break;
-    case 1:
-      datetime.year = 2000;
-      datetime.month = 3;
-      datetime.day = 1;
-      datetime.hour = 4;
-      datetime.minute = 0;
-      datetime.seconds = 0;
-    break;
-    case 2:
-      datetime.year = 2001;
-      datetime.month = 3;
-      datetime.day = 1;
-      datetime.hour = 4;
-      datetime.minute = 0;
-      datetime.seconds = 0;
-    break;
-  }
-}
-*/
 
 Stopwatch millis_timer;
 bool gps_out = false;
